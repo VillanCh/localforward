@@ -159,23 +159,28 @@ class Sock5Session(SessionBase):
 
     def on_connect(self):
         """"""
-        self.conn.recv(1)
+        if ord(self.conn.recv(1)) != 5:
+            logger.info("not a socks5 connection.")
+            raise ConnectionRefusedError()
+
         nmethods = ord(self.conn.recv(1))
         methods = self.conn.recv(nmethods)
         self.conn.send(b"\x05\x00")
 
     def handle(self):
         """"""
-        req = Sock5Request.from_sock(self.conn)
-        logger.info("accept socks5 request: {}".format(req))
-
         try:
+            req = Sock5Request.from_sock(self.conn)
+            logger.info("accept socks5 request: {}".format(req))
+
             if req.cmd == CMD_CONNECT:
                 self._handle_connect(req)
             else:
                 logger.warn(
                     "cannot handle req: {} with invalid cmd: BIND/UDP".format(req))
         except ConnectionIsClosedByPeer:
+            pass
+        finally:
             self.conn.close()
 
     def _handle_connect(self, req: Sock5Request):
@@ -219,6 +224,7 @@ class Sock5Session(SessionBase):
                     if buff:
                         logger.info("send to {}: {}".format(
                             new_sock.getpeername(), buff))
+                        buff = self.execute_callback("data_send", new_sock, buff)
                         new_sock.sendall(buff)
                 elif _es.ident == new_sock.fileno():
                     buff = b""
@@ -239,8 +245,19 @@ class Sock5Session(SessionBase):
                         logger.info("send to {}: {}".format(
                             self.conn.getpeername(), buff
                         ))
-
+                        buff = self.execute_callback("data_recv", new_sock, buff)
                         self.conn.sendall(buff)
 
         self.conn.close()
         new_sock.close()
+
+    def execute_callback(self, hook_key, conn: socket.socket, buff: bytes):
+        try:
+            callback = self.options.get(hook_key)
+            if callback:
+                buff = callback(buff, conn)
+                return buff
+        except:
+            logger.warn("execute hook: {} error: {}".format(hook_key, traceback.format_exc()))
+
+        return buff

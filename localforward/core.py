@@ -12,7 +12,7 @@ FORWORD_TYPE_RAW = 'raw'
 FORWORD_TYPE_SOCKS5 = 'socks5'
 
 _SessionCls = {
-    FORWORD_TYPE_RAW: sessions.RawSession,
+    # FORWORD_TYPE_RAW: sessions.RawSession,
     FORWORD_TYPE_SOCKS5: sessions.Sock5Session,
 }
 
@@ -21,7 +21,7 @@ logger = outils.get_logger('localforward')
 
 class SessionPool(object):
 
-    def __init__(self, backend=FORWORD_TYPE_RAW, size=20, options={}):
+    def __init__(self, backend=FORWORD_TYPE_SOCKS5, size=20, options={}):
         self.size = size
         self._session_list = []
         self._session_kls = _SessionCls[backend]
@@ -40,6 +40,7 @@ class SessionPool(object):
         """"""
         logger.info("session from: {} is started".format(addr))
         try:
+            conn.settimeout(self.options.get("timeout", 10))
             session = self._session_kls(conn, addr, self.options)
             session.handle()
         except Exception:
@@ -48,12 +49,19 @@ class SessionPool(object):
                 addr, msg
             ))
         finally:
+            conn.close()
             logger.info("session from: {} is finished".format(addr))
+
+    def set_data_send_hook(self, callback):
+        self.options['data_send'] = callback
+
+    def set_data_recv_hook(self, callback):
+        self.options['data_recv'] = callback
 
 
 class ForwordServer(object):
 
-    def __init__(self, host="127.0.0.1", port: int = 8010, type=FORWORD_TYPE_RAW, size=20, options={}):
+    def __init__(self, host="127.0.0.1", port: int = 8010, type=FORWORD_TYPE_SOCKS5, size=20, options={}):
         self.host = host
         self.port = port
 
@@ -64,6 +72,12 @@ class ForwordServer(object):
         self.is_working = threading.Event()
 
         self.session_pool = SessionPool(backend=type, options=options)
+
+    def set_data_send_hook(self, callback):
+        self.session_pool.set_data_send_hook(callback)
+
+    def set_data_recv_hook(self, callback):
+        self.session_pool.set_data_recv_hook(callback)
 
     def serve(self, detach=False):
         """"""
@@ -106,6 +120,11 @@ class ForwordServer(object):
         rh = threading.Thread(target=self.serve)
         rh.daemon = True
         rh.start()
+
+        return {
+            "http": "socks5://{}:{}".format(self.host, self.port),
+            "https": "socks5://{}:{}".format(self.host, self.port),
+        }
 
 
 if __name__ == "__main__":
