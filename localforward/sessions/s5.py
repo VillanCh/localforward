@@ -10,6 +10,11 @@ import struct
 from .. import outils
 from .base import SessionBase
 
+
+class ConnectionIsClosedByPeer(Exception):
+    pass
+
+
 logger = outils.get_logger("localforward")
 
 '''
@@ -164,11 +169,14 @@ class Sock5Session(SessionBase):
         req = Sock5Request.from_sock(self.conn)
         logger.info("accept socks5 request: {}".format(req))
 
-        if req.cmd == CMD_CONNECT:
-            self._handle_connect(req)
-        else:
-            logger.warn(
-                "cannot handle req: {} with invalid cmd: BIND/UDP".format(req))
+        try:
+            if req.cmd == CMD_CONNECT:
+                self._handle_connect(req)
+            else:
+                logger.warn(
+                    "cannot handle req: {} with invalid cmd: BIND/UDP".format(req))
+        except ConnectionIsClosedByPeer:
+            self.conn.close()
 
     def _handle_connect(self, req: Sock5Request):
         """"""
@@ -190,11 +198,7 @@ class Sock5Session(SessionBase):
         ]
         kq = select.kqueue()
 
-        should_close = False
         while True:
-            if should_close == True:
-                break
-
             for _es in kq.control(events, 2, 1):
                 if _es.ident == self.conn.fileno():
                     buff = b""
@@ -205,8 +209,7 @@ class Sock5Session(SessionBase):
                             break
 
                         if not data:
-                            should_close = True
-                            break
+                            raise ConnectionIsClosedByPeer()
                         elif len(data) < 1024:
                             buff += data
                             break
@@ -226,8 +229,7 @@ class Sock5Session(SessionBase):
                             break
 
                         if not data:
-                            should_close = True
-                            break
+                            raise ConnectionIsClosedByPeer()
                         elif len(data) < 1024:
                             buff += data
                             break
