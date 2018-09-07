@@ -7,8 +7,10 @@ import socket
 import ipaddress
 import struct
 
+from .. import outils
 from .base import SessionBase
 
+logger = outils.get_logger("localforward")
 
 '''
 The SOCKS request is formed as follows:
@@ -160,9 +162,13 @@ class Sock5Session(SessionBase):
     def handle(self):
         """"""
         req = Sock5Request.from_sock(self.conn)
+        logger.info("accept socks5 request: {}".format(req))
 
         if req.cmd == CMD_CONNECT:
             self._handle_connect(req)
+        else:
+            logger.warn(
+                "cannot handle req: {} with invalid cmd: BIND/UDP".format(req))
 
     def _handle_connect(self, req: Sock5Request):
         """"""
@@ -201,11 +207,15 @@ class Sock5Session(SessionBase):
                         if not data:
                             should_close = True
                             break
+                        elif len(data) < 1024:
+                            buff += data
+                            break
                         else:
                             buff += data
                         break
                     if buff:
-                        print(buff)
+                        logger.info("send to {}: {}".format(
+                            new_sock.getpeername(), buff))
                         new_sock.sendall(buff)
                 elif _es.ident == new_sock.fileno():
                     buff = b""
@@ -218,10 +228,15 @@ class Sock5Session(SessionBase):
                         if not data:
                             should_close = True
                             break
+                        elif len(data) < 1024:
+                            buff += data
+                            break
                         else:
                             buff += data
                     if buff:
-                        print(buff)
+                        logger.info("send to {}: {}".format(
+                            self.conn.getpeername(), buff
+                        ))
 
                         self.conn.sendall(buff)
 

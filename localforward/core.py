@@ -5,7 +5,7 @@ import threading
 import traceback
 from select import kqueue, kevent, KQ_FILTER_READ
 from . import sessions
-
+from . import outils
 from . import pool
 
 FORWORD_TYPE_RAW = 'raw'
@@ -16,6 +16,8 @@ _SessionCls = {
     FORWORD_TYPE_SOCKS5: sessions.Sock5Session,
 }
 
+logger = outils.get_logger('localforward')
+
 
 class SessionPool(object):
 
@@ -24,14 +26,29 @@ class SessionPool(object):
         self._session_list = []
         self._session_kls = _SessionCls[backend]
         self.options = options
+        self.backend = backend
 
         self.pool = pool.Pool(size=20)
         self.pool.start()
 
     def new_session(self, conn: socket.socket, addr: tuple):
         """"""
-        session = self._session_kls(conn, addr, self.options)
-        self.pool.execute(session.handle)
+        logger.info("prepare to start session: {}".format(self.backend))
+        self.pool.execute(self.start_session, (conn, addr))
+
+    def start_session(self, conn, addr):
+        """"""
+        logger.info("session from: {} is started".format(addr))
+        try:
+            session = self._session_kls(conn, addr, self.options)
+            session.handle()
+        except Exception:
+            msg = traceback.format_exc()
+            logger.warn("session from: {} met error: {}".format(
+                addr, msg
+            ))
+        finally:
+            logger.info("session from: {} is finished".format(addr))
 
 
 class ForwordServer(object):
@@ -50,11 +67,14 @@ class ForwordServer(object):
 
     def serve(self, detach=False):
         """"""
+        logger.info("prepare to initialize listener")
         self._init_listener()
+
         try:
             self._serve_forever()
         except:
-            traceback.print_exc()
+            msg = traceback.format_exc()
+            logger.error("error in ForwardServer: {}".format(msg))
         finally:
             self._sock_listener.close()
 
@@ -63,6 +83,8 @@ class ForwordServer(object):
         self._sock_listener = socket.socket()
         self._sock_listener.bind((self.host, self.port))
         self._sock_listener.listen(self.size)
+        logger.info("listen on {}:{} with backlog:{}".format(
+            self.host, self.port, self.size))
 
     def _serve_forever(self):
         """"""
@@ -75,7 +97,15 @@ class ForwordServer(object):
                 #assert isinstance(event, kevent)
                 if event.ident == self._sock_listener.fileno():
                     new_conn, addr = self._sock_listener.accept()
+                    logger.info(
+                        "accept connection from {}:{}".format(addr[0], addr[1]))
                     self.session_pool.new_session(new_conn, addr)
+
+    def start(self):
+        """"""
+        rh = threading.Thread(target=self.serve)
+        rh.daemon = True
+        rh.start()
 
 
 if __name__ == "__main__":

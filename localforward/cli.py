@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 # coding:utf-8
 import argparse
+
+import logging
 from .core import ForwordServer
+
+from .outils import get_logger
+
+
+logger = get_logger("localforward")
 
 
 def cli():
     """"""
+    logger.setLevel(logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", type=int, default=8010,
                         help="the port will be listened.")
